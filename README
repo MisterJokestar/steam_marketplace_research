@@ -1,0 +1,8 @@
+James Wall, Andrew Zink
+
+This is a data science project exploring steam marketplace data from 1997-2019.
+
+The steam.csv file contains the original data pulled from Kaggle.com.
+The newSteam.csv file contains the saved version of the data we tidied up.
+
+The observations are available as both an R markdown file, or a knited html.
