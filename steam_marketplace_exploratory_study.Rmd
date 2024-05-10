@@ -1,0 +1,365 @@
+---
+title: "The Steam Marketplace: An Exploratory Study"
+author: "J. Wall, A. Zink"
+date: "2024-05-09"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+```
+
+## What is the Steam Marketplace??
+
+The Steam Marketplace is an online client software for the purchasing and selling of digital copies of video games for computers (or PCs). It was originally released in 2003 by Valve to market their games, but eventually opened their arms to all publishers to come and sell their games. While other companies attempted to do this over the years for their own games, customers were drawn to Steam due to it being a "one-stop shop" and users being able to sell their in-game collectibles to other users. While computer gaming took a while to grab hold of the gaming community, it exploded in popularity in the aftermath of the Great Recession with consumers being able to handle the processing power these games required with new CPU and GPU technologies. As a result, Steam has sold tens of thousands of video games over the years on its marketplace.
+
+In this dataset obtained from Kaggle, there are over 27000 observations, with both numerical and categorical variables involved. In the original dataset, there were 18 variables that are all seen below in this glimpse. An important thing to note before jumping in is that while the years included are from 1997 until 2019, 2019 is a partial year, with the most recent publication occurring on May 1st, 2019. As a result, there may be some cases where years will be looked at not including 2019 as it may skew certain results.
+```{r}
+steam <- read.csv("steam.csv")
+glimpse(steam)
+```
+## Categorical Variable Breakdown
+Note: all of these categorical variables are in a character string form. Any
+list variables were in character form, may include any number of observations,
+and were delimited by colons.
+
+* `name`:         *name of the video game of interest in the observation*
+
+* `release_date`: *date the game was originally released*
+
+* `developer`:    *name of the company who developed the game*
+
+* `publisher`:    *name of the company who published the game to the market*
+
+* `platforms`:    *list of different types of PCs the game can be played on*
+
+* `categories`:   *list of different tags of categories the game was assigned*
+
+* `genres`:       *list of different tags of genres the game was assigned*
+
+* `steamspy_tags`: *list of different tags of categories the game was assigned*
+
+* `owners`:       *threshold value a game is assigned to based on the number of people who have bought the game*
+              
+Now, there are some obvious variables that stick out that are immediately up for tidying. For one, the release dates being in character form is not practical, so the natural first step in our tidying plans is to convert that into a Date. It also makes no sense to have lists of multiple things within a variable, so a natural step here is to widen these to give each tag their own variable. Finally, while owners is also one that could be converted to a numerical type, keeping these threshold values seemed to make the most sense, as the group could use it for subdivision and there is no true value of what these owner numbers are in this dataset. It makes more sense in this case to factor the values as there are inherent ranks to the values.
+              
+## Numerical Variable Breakdown
+
+* `appid`:            *a unique number each observation is assigned by Valve*
+
+* `english`:          *boolean value (1/0) indicating if the game is in English or not*
+
+* `required_age`:     *integer indicating what the minimum age required for users to be able to play. if it has a value of zero, it has no required_age*
+* `achievements`:     *integer of how many unlockable achievements the game possesses*
+
+* `positive_ratings`: *integer value of how many positive ratings a game has received*
+
+* `negative_ratings`: *integer value of how many negative ratings a game has received*
+
+* `average_playtime`: *integer value of how many hours a player averages playing*
+
+* `median_playtime`:  *integer value of how many hours the median player has played*
+
+* `price`:            *double value indicating the cost for a consumer to buy in Great British Pounds (GBP)*
+
+As for the numerical variables, not much tidying is needed. Under investigation, all "english" values come up as 1, indicating that all games are playable in English. As a result, we can remove this unnecessary variable from the set since it applies to all cases. 
+
+
+## Tidying Process
+
+To begin tidying, `release_date` was reassigned to a date type using the mdy() function within a mutate(), as that was the current format for all observations. Furthermore `english` was removed from the dataset using a select() with a not operator inside. Once this was done, `steam`'s contents were assigned to a new dataset called `newSteam` to prevent overwriting of the original dataset in this desired format.
+
+```{r}
+# Parsing the release date to a date object, removing english variable from the new dataset
+steam <- steam |> mutate(release_date = mdy(release_date)) |> select(!english)
+
+factor_levels <- c("100000000-200000000", "50000000-100000000", "20000000-50000000",
+                   "10000000-20000000", "5000000-10000000", "2000000-5000000",
+                   "1000000-2000000", "500000-1000000", "200000-500000", "100000-200000",
+                   "50000-100000", "20000-50000", "0-20000")
+
+steam <- steam |> mutate(owners = factor(owners, levels = factor_levels))
+
+glimpse(steam)
+
+newSteam <- steam
+```
+
+Next, the tags needed to be widened for easier examination. To do that, each tag variable was separated out into multiple rows and examined for unique cases in a new dataframe. Since the `platforms`variable only had three unique settings, grepl() was used on these cases to create logical values indicating if the game was playable on said platform.
+```{r}
+newSteam <- newSteam |> mutate(windows = grepl("windows", platforms),
+                               mac = grepl("mac", platforms),
+                               linux = grepl("linux", platforms),
+                               .before = platforms)
+
+categories1 <- steam |> separate_rows(categories, sep = ";")
+categories1 <- categories1$categories
+categories1 <- unique(categories1)
+categories1 # Category Tags
+
+genres1 <- steam |> separate_rows(genres, sep = ";")
+genres1 <- genres1$genres
+genres1 <- unique(genres1)
+genres1 # Genre Tags
+
+steamspy_tags1 <- steam |> separate_rows(steamspy_tags, sep = ";")
+steamspy_tags1 <- steamspy_tags1$steamspy_tags
+steamspy_tags1 <- unique(steamspy_tags1)
+steamspy_tags1 # Spy Tags
+```
+
+As you can see, there are 29 tags for both `categories` and `genres`, which is manageable to widen all cases. However, if we sought to widen all cases, we would need to create a very large function to account for this. So, manually widening each case for the `categories` and `genre` tags was the path taken. The path followed for the platforms variable was replicated for these two cases. On the other hand, there are 339 `steamspy_tags`. We would need a function to widen this.  Since the `steamspy_tags` were very specific and had many different cases to account for, that variable was ignored. As a result, 58 new variables were added to create a tidied dataframe of 76 variables.
+```{r}
+# Category Tag Mutate
+newSteam <- newSteam |> 
+  mutate(multi_player_ctag = grepl("Multi-player", categories),
+         local_multi_player_ctag = grepl("Local Multi-Player", categories),
+         single_player_ctag = grepl("Single-player", categories),
+         steam_achievements_ctag = grepl("Steam Achievements", categories),
+         captions_available_ctag = grepl("Captions available", categories),
+         includes_source_sdk_ctag = grepl("Includes Source SDK", categories),
+         stats_ctag = grepl("Stats", categories),
+         includes_level_editor_ctag = grepl("Includes level editor", categories),
+         in_app_purchases_ctag = grepl("In-App Purchases", categories),
+         full_controller_support_ctag = 
+           grepl("Full controller support", categories),
+         steamvr_collectibles_ctag = grepl("SteamVR Collectibles", categories),
+         shared_split_screen_ctag = grepl("Shared/Split Screen", categories),
+         mmo_ctag = grepl("MMO", categories),
+         mods_ctag = grepl("Mods", categories),
+         steam_turn_notifications_ctag = 
+           grepl("Steam Turn Notifications", categories),
+         online_multi_player_ctag = grepl("Online Multi-Player", categories),
+         valve_anti_cheat_enabled_ctag = 
+           grepl("Valve Anti-Cheat enabled", categories),
+         steam_cloud_ctag = grepl("Steam Cloud", categories),
+         steam_trading_cards_ctag = grepl("Steam Trading Cards", categories),
+         partial_controller_support_ctag = 
+           grepl("Partial Controller Support", categories),
+         cross_platform_multiplayer_ctag = 
+           grepl("Cross-Platform Multiplayer", categories),
+         commentary_available_ctag = grepl("Commentary available", categories),
+         steam_workshop_ctag = grepl("Steam Workshop", categories),
+         co_op_ctag = grepl("Co-op", categories),
+         steam_leaderboards_ctag = grepl("Steam Leaderboards", categories),
+         online_co_op_ctag = grepl("Online Co-op", categories),
+         local_co_op_ctag = grepl("Local Co-op", categories),
+         vr_support_ctag = grepl("VR Support", categories),
+         mods_require_hl2_ctag = grepl("Mods (require HL2)", categories),
+         .before = categories)
+
+# Genre Tag Mutate
+newSteam <- newSteam |> 
+  mutate(action_gtag = grepl("Action", genres),
+         adventure_gtag = grepl("Adventure", genres),
+         animation_modeling_gtag = grepl("Animation & Modeling", genres),
+         simulation_gtag = grepl("Simulation", genres),
+         massively_multiplayer_gtag = grepl("Massively Multiplayer", genres),
+         early_access_gtag = grepl("Early Access", genres),
+         design_illustration_gtag = grepl("Design & Illustration", genres),
+         software_training_gtag = grepl("Software Training", genres),
+         free_to_play_gtag = grepl("Free to Play", genres),
+         indie_gtag = grepl("Indie", genres),
+         video_production_gtag = grepl("Video Production", genres),
+         racing_gtag = grepl("Racing", genres),
+         nudity_gtag = grepl("Nudity", genres),
+         gore_gtag = grepl("Gore", genres),
+         web_publishing_gtag = grepl("Web Publishing", genres),
+         sexual_content_gtag = grepl("Sexual Content", genres),
+         photo_editing_gtag = grepl("Photo Editing", genres),
+         tutorial_gtag = grepl("Tutorial", genres),
+         strategy_gtag = grepl("Strategy", genres),
+         rpg_gtag = grepl("RPG", genres),
+         casual_gtag = grepl("Casual", genres),
+         violent_gtag = grepl("Violent", genres),
+         sports_gtag = grepl("Sports", genres),
+         utilities_gtag = grepl("Utilities", genres),
+         education_gtag = grepl("Education", genres),
+         adio_production_gtag = grepl("Audio Production", genres),
+         accounting_gtag = grepl("Accounting", genres),
+         .before = genres)
+
+newSteam <- newSteam |> relocate(positive_ratings, negative_ratings, average_playtime, median_playtime, owners, price, achievements, .before = required_age)
+
+glimpse(newSteam)
+```
+
+While the `steamspy_tags` were not transformed, a function was still created for applications when one sought to seek out cases where a singular tag was featured. It does so by taking in a dataframe, vector and a string to look for using the grepl() function just as we did before. This however just returns a subsection of the dataframe, meaning you would lose the games not under the tag searched for. Also if a tag imputed into the function can not be found via the function, it will return the print out the list of tags in the vector so users can easily find the correct tag they are trying to search for.
+
+```{r}
+tag_search <- function(df, x, tag) {
+  tag_list <- df |> mutate(tags = str_to_lower({{x}})) |>
+                    separate_rows(tags, sep = ";")
+  tag_list <- tag_list$tags
+  tag_list <- unique(tag_list)
+  
+  tag <- str_to_lower(tag)
+  
+  if (tag %in% tag_list) {
+    tags_found <- df |> filter(grepl(tag, {{x}}, ignore.case = TRUE))
+    return(tags_found)
+  } else {
+    print("Tag not avalaible, please choose from the tags listed.")
+    print(tag_list)
+  }
+}
+```
+
+
+## Exploring the Dataset: Publications per Year
+
+Now, having these tags set as variables was a massive advantage for searching through this data. Since all variables were set to true and false for these tags, one could simply use a filter to retrieve a dataframe they sought out. For example, are there any cases where the `required_age` for a video game sold on Steam was 0 (it was for the vase majority) but also where both the `sexual_content_gtag` and the `nudity_gtag` were set to ? As you can see below, there were over a HUNDRED cases where this was true.
+```{r}
+uncensored_content <- newSteam |> filter(required_age == 0 & nudity_gtag == TRUE & sexual_content_gtag == TRUE) |> 
+  select(name, developer, publisher, average_playtime, median_playtime, owners)
+glimpse(uncensored_content)
+```
+
+While this is nice, these tags are not the main focus of this project. Visualization and drawing conclusions based on data analysis is. So, to begin, we sought to look at many of these cases by comparing the years they were involved with. So, to make this happen, the year of the publication was parsed out an assigned to a new variable within the dataset.
+```{r}
+newSteam <- newSteam |> mutate(year = as.numeric(format(release_date,'%Y')), 
+                               .before = release_date)
+```
+
+
+To begin, publication by years interested us the most. We naturally assumed there would be growth over the years, as processing power for computers drastically increased over the timeframe of interest. So, plotting the publications by each year in the form of a bar graph was the first step taken into this exploration.
+```{r}
+newSteam |> ggplot(aes(year)) + geom_bar()
+```
+
+As you can see, there is an exponential increase over this time, with production starting to pick up drastically in 2014. When the `count` axis is converted to a logarithmic scale, this allows for a linear trendline to be placed over the data points, as evidenced below. Note that as 2019 is a partial year, it is removed for this application to help prevent any skew.
+```{r}
+total_count <- newSteam |> filter(year != 2019) |> group_by(year) |> count()
+total_count <- total_count |> mutate(log_n = log(n))
+total_count |> ggplot(aes(x = year, y = log_n)) + geom_point() + 
+  geom_smooth(method = 'lm', formula = y ~ x) + 
+  labs(title = "Exponential Regression", x= "Year", y = "Games Published (log Scale)")
+```
+
+Now, a major problem with studying trends in video games is the creation and introduction of *shovelware*, which consists of video games that are solely created for the purpose of publication numbers and productivity. Many of these games appear on the Steam marketplace, but very few people buy them due to their lack of quality gameplay. As a result, many of these games can skew the results of what we are dealing with. For comparison sake, it is worth plotting the effects of removing these values from the dataset for our previous case, which includes all games produced. To do this, all games that had an `average_playtime` of zero and a `median_playtime` of zero. This special case was stored into a new dataframe named `steam_noShove` for future applications.
+```{r}
+steam_noShove <- newSteam |> filter(average_playtime != 0, median_playtime != 0)
+```
+
+This resulted in a shrank dataframe of 6,170 games. Now, for the plotting cases!
+```{r}
+steam_noShove|> ggplot(aes(year)) + geom_bar()
+
+shovelware_removed_count <- steam_noShove |> group_by(year) |> count() |>mutate(log_n = log(n))
+shovelware_removed_count |> ggplot(aes(x = year, y = log_n)) + geom_point() + 
+  geom_smooth(method = 'lm', formula = y ~ x) + 
+  labs(title = "Exponential Regression of Quality Game Publication", x= "Year", y = "Games Published (log10 Scale)")
+```
+
+While growth is still seen over most of the years, we see an alarming drop-off in the late 2010s occurring with quality games published on Steam. It was a surprise to see at first, but this timeframe happens to correspond with the rise of Epic Games, who is the producer of the smash hit "battle royale" video game Fortnite. Epic Games came out with an online marketplace of their own to market Fortnite and other games they produced, and followed a similar pathway as Steam over the course of the late 2010s to open up their store to third party developers as well. This naturally bred competition between the two, with quality publishers leaving Steam for better deals with Epic. Other firms that behaved similarly include Activision Blizzard and Electronic Arts, better known as EA. 
+
+With this drastic shift, it is worth exploring in multiple areas to see where these effects are taking place the most. Indie games seemed like the most promising place to start. Indie games are games that are made by small firms have much smaller budgets and teams than your standard Triple-A producer, like EA and Activision Blizzard. A good place to jump off was looking at what percentages indie games composed out of all games published in each year.
+```{r}
+indie_yes <- newSteam |> group_by(year) |> filter(indie_gtag) |> count()
+total <- newSteam |> group_by(year) |> count() |> filter(n > 10)
+indie_prop <- total |> left_join(indie_yes, join_by(year))
+indie_prop <- indie_prop |> mutate(prop = n.y/n.x)
+indie_prop |> ggplot(aes(x = year, y = prop)) + 
+  geom_bar(aes(fill = year), stat = "identity") + geom_smooth(method = "lm", formula = y ~ log(x)) + 
+  labs(title = "Proportion of Indie Games Published Per Year", x = "Year", y = "Proportion")
+```
+
+As one can see, there is strong growth in the way of indie games entering the marketplace. In the late 2010s, they compose a majority 75 percent of all games published on average! This is seen as good on the surface, as smaller firms are throwing their hats into the ring more and more. However, when the zero playtime games are removed from this case, the perspective shifts quite a bit.
+```{r}
+indie_0_playtime <- newSteam |> group_by(year) |> filter(median_playtime != 0) |>
+  filter(average_playtime != 0) |> filter(indie_gtag) |> count()
+indie_prop <- indie_prop |> left_join(indie_0_playtime)
+indie_prop <- indie_prop |> mutate("nonzero" = n/n.x) 
+indie_prop_copy <- indie_prop
+indie_prop <- indie_prop |> select(year, prop, nonzero) |>
+  pivot_longer(cols = prop:nonzero, names_to = "proportion", values_to = "values")
+indie_prop
+indie_prop |> ggplot(aes(y = values, fill = proportion, x = year)) +
+  geom_bar(position = "dodge", stat = "identity", width = 0.6) +
+  labs(title = "Proportion of Indie Games Published Per Year", subtitle = "Original Proportion Compared with Nonzero Playtime Proportion", x= "Year", y = "Proportion")
+```
+
+With the bars in red being cases where the indie playtime is nonzero, one can see a large disparity grow between this and the percentage of indie published in the mid to late 2010s. To get specific values, a bar graph was created below to see how big this gap truly becomes.
+```{r}
+indie_prop_copy <- indie_prop_copy |> group_by(year) |> mutate(shovelware_prop = 1 - (nonzero/prop))
+indie_prop_copy |> ggplot(aes(y = shovelware_prop, fill = shovelware_prop, x = year)) + geom_bar(stat = "identity")
+```
+
+As a result, we can draw the conclusion that while publications are increasing, the selection of games being offered is being diluted by poor quality indie games. Due to this, competitors may be drawing consumers and publishers away from Steam with incentives and benefits. Having a dataset that spread into the 2020s would be very interesting to look at for this, as more gamers were having to rely on online purchases and digital copies to play video games during that timeframe.
+
+
+## Exploring the Dataset: Indie Investigations 
+
+Accounting for the shovelware, we can look at the prices of independent games coming out vs non independent. What we expect to see here is higher prices in the nonindependent as games from large studios usually have more budget, more employees and all of that will drive up the price.
+
+```{r}
+steam_noShove |> filter(owners != "0-20000") |> 
+  ggplot(aes(price, fill = indie_gtag)) + 
+  geom_histogram(binwidth = 2) +
+  facet_wrap(~indie_gtag) +
+  theme(legend.position = "none")
+```
+
+We can filter games that have the single_player category without the multi_player category, and vice versa. We can then plot both by their owner groups to see the amount of players that own in their respective categories. What we expected to see was more multi_player games having larger groups over all as having a game that encourages people to play with others should encourage more people to play the game.
+```{r}
+single_player <- steam_noShove |> filter(single_player_ctag, !multi_player_ctag, average_playtime != 0, median_playtime != 0)
+
+multiplayer <- steam_noShove |> filter(multi_player_ctag, !single_player_ctag, average_playtime != 0, median_playtime != 0)
+
+single_player |> ggplot(aes(owners, fill = owners)) + geom_bar() + 
+  theme(axis.text.x = element_text(angle = 45)) + theme(legend.position = "none")
+multiplayer |> ggplot(aes(owners, fill = owners)) + geom_bar() + 
+  theme(axis.text.x = element_text(angle = 45)) + theme(legend.position = "none")
+```
+
+What is interesting to find is that single_player has consistent owners from the `0-20000` range to the `200000-500000` range. On the other hand, the multi_player has more of a bell shaped curve with the highest group in the `200000-500000`. It is also worth noting that just as before we can see the multi_player has a more gradual drop off in the higher numbers, which is what we expected. It also had games in the two highest categories of owner counts, which single_player games did not showing that it did have an impact.
+
+
+## Exploring the Dataset: Pricing
+
+Pricing is also worth examining, as these games cover a wide range of applications. There are many high prices that have the potential to skew the set, so all values above $75 were eliminated from the new set.
+```{r}
+newSteam |> mutate(year = as.character(year)) |> filter(price <= 75) |> 
+  ggplot(aes(x = year, y = price)) + geom_boxplot(aes(fill = year),show.legend = FALSE) + 
+  theme(axis.text.x = element_text(angle = 45)) + labs(title = "Price Distribution", x= "Year", y = "Price (GBP)")
+```
+
+With price medians around $10 for most years across all games, this follows what most game prices have been around based on our experience. However, when we eliminate all nonzero points, the medians shift for some cases.
+
+```{r}
+steam_noShove |> mutate(year = as.character(year)) |> filter(price <= 75) |> 
+  ggplot(aes(x = year, y = price)) + geom_boxplot(aes(fill = year),show.legend = FALSE) + 
+  theme(axis.text.x = element_text(angle = 45)) + labs(title = "Nonzero Playtime Price Distribution", x= "Year", y = "Price (GBP)")
+```
+
+There is very little change when the indie tag is applied, except some high-end price outliers are eliminated with this filter. Not exactly stuff to write home about, but still worth noting.
+```{r}
+steam_noShove |> filter(indie_gtag) |> mutate(year = as.character(year)) |> filter(price <= 75) |> 
+  ggplot(aes(x = year, y = price)) + geom_boxplot(aes(fill = year),show.legend = FALSE) + 
+  theme(axis.text.x = element_text(angle = 45)) + labs(title = "Indie Price Distribution", x= "Year", y = "Price (GBP)")
+```
+
+As you can see above, applications with simply one tag concerned cause marginal changes, which is not very helpful when drawing conclusions. Now, revisiting singular gameplay types, such as single-player-only and multi-player-only games may be more helpful to us. In applying this to non-shovelware multiplayer-only games, we can see there is a drastic shift.
+```{r}
+steam_noShove |> filter(multi_player_ctag) |> filter(!single_player_ctag) |> mutate(year = as.character(year)) |> 
+  filter(price <= 75) |> ggplot(aes(x = year, y = price)) + geom_boxplot(aes(fill = year),show.legend = FALSE) + 
+  theme(axis.text.x = element_text(angle = 45)) + labs(title = "Multi-Player Game Price Distribution", x= "Year", y = "Price (GBP)")
+```
+
+There is a drastic shift, as many of the years of played multiplayer games have a median price of $0, meaning free-to-play games have a way of drawing fans in if made wiith quality. This correlates with the growing younger fan base in PC gaming, because more often than not, kids prefer to not have to pay anything to play a video-game, especially if it is a game they may only play once when together with their friends. Where publishers recoup costs of this include in-game purchases and advertisement deals with other companies that seek exposure for their products.
+```{r}
+steam_noShove |> filter(single_player_ctag) |> filter(!multi_player_ctag) |> mutate(year = as.character(year)) |> 
+  filter(price <= 75) |> ggplot(aes(x = year, y = price)) + geom_boxplot(aes(fill = year),show.legend = FALSE) + 
+  theme(axis.text.x = element_text(angle = 45)) + labs(title = "Single-Player Game Price Distribution", x= "Year", y = "Price (GBP)")
+```
+
+When we look back at the single player only cases, this follows the trends seen above with all games included in the dataset. We do see higher outliers and larger median prices than in the indie cases, but roughly the same levels with shovelware eliminated. This indicates that while these multi-player games may have lower prices, there are many more single-player games produced than multiplayer games, leading to those multi-player prices being overlooked if not broken out like this.
+
+
+## Summary
+
+While PC gaming has been around for a while, there have been some drastic (and some not-so drastic) shifts in the Steam marketplace. Where Steam used to have a chokehold on the indie publication market, they seem to have slipped a little bit to their competitors as a result of them opening up to third party publishers in their marketplaces. Also, with more and more games being published every year, free-to-play video games are becoming more popular on the marketplace with multiplayer games, following trends seen in the mobile app marketplaces managed by Apple, Google, and others. However, there seems to be cause for concern with upticks in pricing and downturns in video game quality on Steam, as evidenced by our deep dive into the world of shovelware. All in all, there is obviously a five-year window missing between May of 2019 and now, and these issues may have been rectified by now. But that requires further exploration. 
+
+For now, though, Steam had time to rectify their mistakes and better monitor who is able to publish on their marketplace as a company. Their five-year mission has come and gone, and based on their net worth rankings according to the verge, their net worth is through the roof. Predictably, in the aftermath of the COVID-19 pandemic, where people were stuck at home playing video games and binge-watching TV, their net worth more than doubled in value, according to [The Verge](https://www.usesignhouse.com/blog/valve-stats#:~:text=How%20much%20is%20Valve%20NET%20worth%3F%20(Valuation),-Want%20a%20link&text=of%20this%20article%3F-,Valve%20is%20worth%20%247.7%20billion%20in%202022,to%20a%20recent%20Bloomberg%20forecast.). However, as more and more people have gone back to work, it is interesting to wonder how this has affected profits, game publications, and prices. Only time will tell.
+
